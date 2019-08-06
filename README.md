@@ -4,7 +4,7 @@ this is a tiny POC application, written in GO, which list the existing airports 
 ## pre-requirements
 - install docker
 
-## runing the code
+## running the code
 issue this commands form the application root:
 
 ### build the docker image
