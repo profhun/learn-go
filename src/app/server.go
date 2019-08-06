@@ -5,6 +5,7 @@ import (
     "net/http"
 	"log"
 	"encoding/json"
+	"strings"
 	"../utils"
 )
 
@@ -44,7 +45,7 @@ func FilterList(list []JsonRowItem, lon, lat, r float64) []JsonRowItem {
 
 func GetList(w http.ResponseWriter, req *http.Request) {
 
-	isCorrect, lonParam, latParam, rParam := utils.CheckParams(w, req)
+	isCorrect, lonParam, latParam, rParam, paramErrors := utils.CheckParams(w, req)
 
 	if isCorrect == true {
 
@@ -75,13 +76,15 @@ func GetList(w http.ResponseWriter, req *http.Request) {
 				}
 			} else {
 				if (message.Total_rows == 0) {
-					fmt.Fprintf(w, "No Airport found in the selected area")
+					http.Error(w, "No Airport found in the selected area", http.StatusNoContent)
 				} else {
 					// pagination is ended
 				}
 				while = false;
 			}
 		}
+	} else {
+		http.Error(w, strings.Join(paramErrors, "\r\n"), http.StatusForbidden)
 	}
 
 }

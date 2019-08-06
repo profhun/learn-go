@@ -47,55 +47,52 @@ func CreateDbLink(lon, lat, r float64, bookmark string) string {
 }
 
 
-func CheckParams(w http.ResponseWriter, req *http.Request) (bool, float64, float64, float64) {
+func CheckParams(w http.ResponseWriter, req *http.Request) (bool, float64, float64, float64, []string) {
 	var isCorrect bool = true
 	var err error
+	var lonParam float64
+	var latParam float64
+	var rParam float64
+	var errors []string
 
 	if req.URL.Query()["lon"] == nil {
-		fmt.Fprintf(w, "Please set query string ?lon=float64")
+		errors = append(errors, "Please set query string ?lon=float64")
+		isCorrect = false
+	} else if lonParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lon"], ""), 64); err != nil {
+		errors = append(errors, "param lon is not a float")
 		isCorrect = false
 	}
 
 	if req.URL.Query()["lat"] == nil {
-		fmt.Fprintf(w, "Please set query string ?lon=float64")
+		errors = append(errors, "Please set query string ?lon=float64")
+		isCorrect = false
+	} else if latParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lat"], ""), 64); err != nil {
+		errors = append(errors, "param lat is not a float")
 		isCorrect = false
 	}
 
 	if req.URL.Query()["r"] == nil {
-		fmt.Fprintf(w, "Please set query string ?r=float64 as range")
+		errors = append(errors, "Please set query string ?r=float64 as range")
 		isCorrect = false
-	}
-
-	var lonParam float64
-	if lonParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lon"], ""), 64); err != nil {
-		fmt.Fprintf(w, "param lon is not a float")
-		isCorrect = false
-	}
-	var latParam float64
-	if latParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lat"], ""), 64); err != nil {
-		fmt.Fprintf(w, "param lat is not a float")
-		isCorrect = false
-	}
-	var rParam float64
-	if rParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["r"], ""), 64); err != nil {
-		fmt.Fprintf(w, "param r is not a float")
+	} else if rParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["r"], ""), 64); err != nil {
+		errors = append(errors, "param r is not a float")
 		isCorrect = false
 	}
 
 	if (lonParam < -180 || lonParam > 180) {
-		fmt.Fprintf(w, "param lon must be between -180 and 180")
+		errors = append(errors, "param lon must be between -180 and 180")
 		isCorrect = false
 	}
 
 	if (latParam < -90 || latParam > 90) {
-		fmt.Fprintf(w, "param lon must be between -180 and 180")
+		errors = append(errors, "param lon must be between -180 and 180")
 		isCorrect = false
 	}
 
 	if rParam <= 0 {
-		fmt.Fprintf(w, "range must be greater then zero")
+		errors = append(errors, "range must be greater then zero")
 		isCorrect = false
 	}
 
-	return isCorrect, lonParam, latParam, rParam
+	return isCorrect, lonParam, latParam, rParam, errors
 }
