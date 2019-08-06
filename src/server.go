@@ -14,30 +14,44 @@ import (
 )
 
 type JsonRowItemFields struct {
-	lat float64
-	lon float64
-	name string
+	Lat float64
+	Lon float64
+	Name string
+	Distance float64
 }
 
 type JsonRowItem struct {
-	id string
-	// order []float64
-	fields JsonRowItemFields
+	Id string
+	Order []float64
+	Fields JsonRowItemFields
 }
 
 type JsonRoot struct {
-	total_rows int16
-	bookmark string
-	rows []JsonRowItem
+	Total_rows int
+	Bookmark string
+	Rows []JsonRowItem
 }
 
-func CreateDbLink(lon, lat, r float64) string {
-	lon_from := math.Mod(lon - r/2/100, 50)
-	lon_to := math.Mod(lon + r/2/100, 50)
-	lat_from := math.Mod(lat - r/2/100, 205)
-	lat_to := math.Mod(lat + r/2/100, 205)
+func CreateDbLink(lon, lat, r float64, bookmark string) string {
+	// one means nearly 101km
+	lon_from := lon - r/100
+	if lon_from < -180 {
+		lon_from = -180
+	}
+	lon_to := lon + r/100
+	if lon_to > 180 {
+		lon_to = 180
+	}
+	lat_from := lat - r/100
+	if lat_from < -90 {
+		lat_from = -90
+	}
+	lat_to := lat + r/100
+	if lat_to > 90 {
+		lat_to = 90
+	}
 
-	query := url.QueryEscape(fmt.Sprintf("lon:[%f TO %f] AND lat:[%f TO %f]", lon_from, lon_to, lat_from, lat_to))
+	query := url.QueryEscape(fmt.Sprintf(`lon:[%f TO %f] AND lat:[%f TO %f]`, lon_from, lon_to, lat_from, lat_to))
 
 	var link string
 	if os.Getenv("ENV") == "test" {
@@ -46,7 +60,13 @@ func CreateDbLink(lon, lat, r float64) string {
 		link = "https://mikerhodes.cloudant.com/airportdb/_design/view1/_search/geo?q="
 	}
 
-	return link + query
+	pagination := fmt.Sprintf(`&limit=10&sort="<distance,lon,lat,%f,%f,km>"`, lon, lat)
+
+	if bookmark != "" {
+		pagination += fmt.Sprintf(`&bookmark=%s`, bookmark)
+	}
+
+	return link + query + pagination
 }
 
 func GetResultsFromDb(link string) string {
@@ -73,7 +93,9 @@ func FilterList(list []JsonRowItem, lon, lat, r float64) []JsonRowItem {
 	filteredList := make([]JsonRowItem, 0)
 	for _, v := range list {
 
-        if distance(lon, lat, v.fields.lon, v.fields.lat) <= r {
+		distance := distance(lon, lat, v.Fields.Lon, v.Fields.Lat)
+        if distance <= r {
+			v.Fields.Distance = distance
             filteredList = append(filteredList, v)
         }
     }
@@ -81,74 +103,98 @@ func FilterList(list []JsonRowItem, lon, lat, r float64) []JsonRowItem {
     return filteredList
 }
 
-func checkParams(w http.ResponseWriter, req *http.Request) bool {
-	var missingParams bool = false
+func checkParams(w http.ResponseWriter, req *http.Request) (bool, float64, float64, float64) {
+	var isCorrect bool = true
+	var err error
+
 	if req.URL.Query()["lon"] == nil {
 		fmt.Fprintf(w, "Please set query string ?lon=float64")
-		missingParams = true
+		isCorrect = false
 	}
 
 	if req.URL.Query()["lat"] == nil {
 		fmt.Fprintf(w, "Please set query string ?lon=float64")
-		missingParams = true
+		isCorrect = false
 	}
 
 	if req.URL.Query()["r"] == nil {
 		fmt.Fprintf(w, "Please set query string ?r=float64 as range")
-		missingParams = true
+		isCorrect = false
 	}
 
-	return missingParams;
+	var lonParam float64
+	if lonParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lon"], ""), 64); err != nil {
+		fmt.Fprintf(w, "param lon is not a float")
+		isCorrect = false
+	}
+	var latParam float64
+	if latParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lat"], ""), 64); err != nil {
+		fmt.Fprintf(w, "param lat is not a float")
+		isCorrect = false
+	}
+	var rParam float64
+	if rParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["r"], ""), 64); err != nil {
+		fmt.Fprintf(w, "param r is not a float")
+		isCorrect = false
+	}
+
+	if (lonParam < -180 || lonParam > 180) {
+		fmt.Fprintf(w, "param lon must be between -180 and 180")
+		isCorrect = false
+	}
+
+	if (latParam < -90 || latParam > 90) {
+		fmt.Fprintf(w, "param lon must be between -180 and 180")
+		isCorrect = false
+	}
+
+	if rParam <= 0 {
+		fmt.Fprintf(w, "range must be greater then zero")
+		isCorrect = false
+	}
+
+	return isCorrect, lonParam, latParam, rParam
 }
 
 func GetList(w http.ResponseWriter, req *http.Request) {
 
-	if checkParams(w, req) == false {
+	isCorrect, lonParam, latParam, rParam := checkParams(w, req)
 
-		var lonParam float64
-		var latParam float64
-		var rParam float64
-		var err error
-		if lonParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lon"], ""), 64); err != nil {
-			log.Fatalln(err)
-		}
-		if latParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["lat"], ""), 64); err != nil {
-			log.Fatalln(err)
-		}
-		if rParam, err = strconv.ParseFloat(strings.Join(req.URL.Query()["r"], ""), 64); err != nil {
-			log.Fatalln(err)
-		}
+	if isCorrect == true {
 
-		link := CreateDbLink(lonParam, latParam, rParam)
-		jsonData := (GetResultsFromDb(link))
+		var while bool = true;
+		var bookmark string = "";
 
-		fmt.Println(jsonData)
+		for while == true {
 
-		var message JsonRoot
-		err = json.Unmarshal([]byte(jsonData), &message)
+			link := CreateDbLink(lonParam, latParam, rParam, bookmark)
+			jsonData := (GetResultsFromDb(link))
 
-		if err != nil {
-			log.Fatalln(err)
-			fmt.Println(err)
-		}
+			var message JsonRoot
+			err := json.Unmarshal([]byte(jsonData), &message)
 
-		fmt.Println(message)
-
-		if len(message.rows) > 0 {
-			fmt.Println(len(message.rows))
-			fmt.Println(lonParam)
-			fmt.Println(latParam)
-			fmt.Println(rParam)
-
-
-			list := FilterList(message.rows, lonParam, latParam, rParam)
-			listRowsCount := len(list)
-
-			for i := 0; i < listRowsCount; i++ {
-				fmt.Fprintf(w, "name: %s lon: %f lat: %f", list[i].fields.name, list[i].fields.lat, list[i].fields.lon)
+			if err != nil {
+				log.Fatalln(err)
 			}
-		} else {
-			fmt.Fprintf(w, "No Airport found in the selected area")
+
+			bookmark = message.Bookmark
+
+			if len(message.Rows) > 0 {
+
+				list := FilterList(message.Rows, lonParam, latParam, rParam)
+				listRowsCount := len(list)
+
+				for i := 0; i < listRowsCount; i++ {
+					fmt.Fprintf(w, "name: %s; distance: %fKm lon: %f lat: %f \r\n", list[i].Fields.Name, list[i].Fields.Distance, list[i].Fields.Lat, list[i].Fields.Lon)
+				}
+			} else {
+				if (message.Total_rows == 0) {
+					fmt.Fprintf(w, "No Airport found in the selected area")
+				} else {
+					// pagination is ended
+				}
+				while = false;
+			}
 		}
 	}
 
